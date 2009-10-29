@@ -29,8 +29,17 @@ class NetHandler(socketserver.StreamRequestHandler):
 class NetMarshall(socketserver.ThreadingMixIn, socketserver.TCPServer):
     #def handle_error(self, request, client_address):
         #print("Some shit went down from %s" % (client_address,))
-    def handle_exit(self, request, client_address):
+    def close_request(self, request):
+        request.close()
         players[client_address].disconnect()
+
+    def process_request_thread(self, request, client_address):
+        try:
+            self.finish_request(request, client_address)
+            self.close_request(request, client_address)
+        except:
+            self.handle_error(request, client_address)
+            self.close_request(request, client_address)
 
 #Marshalling + Simulation
 class RPCMessage:
@@ -52,7 +61,7 @@ class RPCMessage:
         args = str(args).split(' ',1)
         if len(args) == 1:
             self.player.net.w("CREATE takes two arguments, NAME and PASSWORD seperated by a space\r\nex: CREATE name password")
-            pass
+            return
         if args[0] in characters:
             self.player.net.w("\"%s\" is already taken :(" % (args[1]))
         
@@ -64,22 +73,30 @@ class RPCMessage:
         args = str(args).split(' ',1)
         if len(args) == 1:
             self.player.net.w("Login takes two arguments, NAME and PASSWORD seperated by a space\r\nex: LOGIN name password")
-            pass
+            return
         if args[0] in characters:
             character = characters[args[0]]
             if character.password == args[1]:
                 self.player.character = character
+                if character.loggedIn:
+                    #oh shit there is a guy logged in somewhere
+                    character.loggedIn.net.w("!!!! You are being logged out due to another user signing into this character!!!!")
+                    character.loggedIn.logout()
+                character.loggedIn = self.player
                 self.player.net.w("You are now logged into %s." % character.name)
             else:
                 self.player.net.w("The password supplied does not match the name \"%s\"." % (args[1]))
-                pass
+                return
         else:
             self.player.net.w("\"%s\" does not exist! Why don't you CREATE it?" % (args[1]))
-            pass
+            return
         
     def rpc_help(self, args):
         if args:
-            self.player.net.w(cfg.get('rpc',self.message[0]))
+            if args in self.funcs or args in self.afuncs or args in self.rfuncs or args in self.sfuncs:
+                self.player.net.w(cfg.get('rpc',args))
+            else:
+                self.player.net.w("I don't think the %s command exists." % (args.upper()))
         else:
             rpcs = 'FULL ACCESS>>  '
             for rpc in self.funcs.keys():
@@ -114,7 +131,8 @@ class RPCMessage:
             
 class Player:
     character = 0
-                                  
+    room = 0
+    
     def __init__(self,net):
         self.net = net
         
@@ -124,15 +142,34 @@ class Player:
         players.remove(self)
 
     def logout(self):
-        self.character = 0
+        print("Logged out")
+        self.character.loggedIn = 0
+        if self.room:
+            self.room.leave(self.character.name)
         
 class Character:
+    loggedIn = 0
     def __init__(self, name, password, accessLevel = 0):
         self.level = 0
         self.name = name
         self.password = password #super safe ya?
         self.accessLevel = accessLevel
 
+class Room:
+    players = {}
+
+    def __init__(self,description):
+        self.description = description
+
+    def leave(self,player):
+        del players[player.character.name]
+        self.w("%s has left the room." % (player.character.name))
+
+    def join(self,player):
+        players[player.character.name]
+    def w(self,message):
+        for player in players:
+            player.net.w(message)
 
 #Startup Sequence
 if __name__ == "__main__":
@@ -144,6 +181,9 @@ if __name__ == "__main__":
     #Persistence... the only persistence in this whole thing
     characters = {cfg.get('admin','name'):Character(cfg.get('admin','name'),cfg.get('admin','password'),9)}
     players = {}
+    rooms = []
+    numRooms = cfg.get('game','rooms')
+    
     q = Queue()
     
     server = NetMarshall((HOST, PORT), NetHandler)
