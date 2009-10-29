@@ -12,7 +12,7 @@ class NetHandler(socketserver.StreamRequestHandler):
         if noCR:
             self.wfile.write(bytes(text,'ascii'))
         else:
-            self.wfile.write(bytes(text+"\n\r::",'ascii'))
+            self.wfile.write(bytes(text+"\n\r",'ascii'))
             
     def handle(self):
         self.w(cfg.get('strings','welcome'));
@@ -50,9 +50,30 @@ class RPCMessage:
             self.message = [self.message[0],0]
         self.funcs = {'help': self.rpc_help} # any time
         self.afuncs = {'create':self.rpc_create,'login':self.rpc_login} # anonymous only
-        self.rfuncs = {'logout':self.rpc_logout} # logged in only
+        self.rfuncs = {'logout':self.rpc_logout,'join':self.rpc_join,'say':self.rpc_say} # logged in only
         self.sfuncs = {} # admin commands... if you want them
 
+    def rpc_say(self, args):
+        if not args:
+            self.player.net.w("You must say something to be heard.")
+            return
+        if not self.player.room:
+            self.player.net.w("You must be in a room to say something.")
+            return
+        rooms[self.player.room].w("%s>> %s" % (self.player.character.name,args))
+        
+    def rpc_join(self, args):
+        room = int(args)-1
+        max_rooms = int(cfg.get('game','rooms'))-1
+        if room > max_rooms  or room < 0:
+            self.player.net.w("Invalid room choice. Max room number is %s." % (cfg.get('game','rooms')))
+            return
+        rooms[room].join(self.player)
+        self.player.net.w(cfg.get('game',args))
+        for play in rooms[room].players:
+            chars += play.character.name + ', '
+        self.player.net.w("You see: \r\n%s" % chars)
+        
     def rpc_logout(self, args):
         self.player.logout()
         self.player.net.w("You are now logged out.")
@@ -83,7 +104,7 @@ class RPCMessage:
                     character.loggedIn.net.w("!!!! You are being logged out due to another user signing into this character!!!!")
                     character.loggedIn.logout()
                 character.loggedIn = self.player
-                self.player.net.w("You are now logged into %s." % character.name)
+                self.player.net.w("You are now logged into %s. Please JOIN a room." % character.name)
             else:
                 self.player.net.w("The password supplied does not match the name \"%s\"." % (args[1]))
                 return
@@ -150,7 +171,7 @@ class Player:
 class Character:
     loggedIn = 0
     def __init__(self, name, password, accessLevel = 0):
-        self.level = 0
+        self.wins = 0
         self.name = name
         self.password = password #super safe ya?
         self.accessLevel = accessLevel
@@ -166,10 +187,12 @@ class Room:
         self.w("%s has left the room." % (player.character.name))
 
     def join(self,player):
-        players[player.character.name]
-    def w(self,message):
+        self.w("%s has joined the room." % (player.character.name),player.character.name)
+        players[player.character.name] = player
+    
+    def w(self,message,exclude = ''):
         for player in players:
-            player.net.w(message)
+            if player.character.name != exclude: player.net.w(message)
 
 #Startup Sequence
 if __name__ == "__main__":
@@ -182,8 +205,12 @@ if __name__ == "__main__":
     characters = {cfg.get('admin','name'):Character(cfg.get('admin','name'),cfg.get('admin','password'),9)}
     players = {}
     rooms = []
-    numRooms = cfg.get('game','rooms')
-    
+    numRooms = int(cfg.get('game','rooms'))
+    c = 0
+    while c < numRooms:
+        rooms.append(Room(cfg.get('game',str(c+1))))
+        c+=1
+        
     q = Queue()
     
     server = NetMarshall((HOST, PORT), NetHandler)
