@@ -29,9 +29,10 @@ class NetHandler(socketserver.StreamRequestHandler):
 class NetMarshall(socketserver.ThreadingMixIn, socketserver.TCPServer):
     #def handle_error(self, request, client_address):
         #print("Some shit went down from %s" % (client_address,))
-    def close_request(self, request):
+    def close_request(self, request, client_address):
         request.close()
         players[client_address].disconnect()
+        del players[client_address]
 
     def process_request_thread(self, request, client_address):
         try:
@@ -68,10 +69,12 @@ class RPCMessage:
         if room > max_rooms  or room < 0:
             self.player.net.w("Invalid room choice. Max room number is %s." % (cfg.get('game','rooms')))
             return
+        self.player.room = room
         rooms[room].join(self.player)
         self.player.net.w(cfg.get('game',args))
+        chars = ''
         for play in rooms[room].players:
-            chars += play.character.name + ', '
+            chars += str(play) + ', '
         self.player.net.w("You see: \r\n%s" % chars)
         
     def rpc_logout(self, args):
@@ -160,13 +163,12 @@ class Player:
     def disconnect(self):
         if self.character:
             self.logout()
-        players.remove(self)
-
+            
     def logout(self):
-        print("Logged out")
-        self.character.loggedIn = 0
         if self.room:
-            self.room.leave(self.character.name)
+            rooms[self.room].leave(self)
+        self.character.loggedIn = 0
+        self.character = 0
         
 class Character:
     loggedIn = 0
@@ -183,16 +185,16 @@ class Room:
         self.description = description
 
     def leave(self,player):
-        del players[player.character.name]
+        del self.players[player.character.name]
         self.w("%s has left the room." % (player.character.name))
 
     def join(self,player):
         self.w("%s has joined the room." % (player.character.name),player.character.name)
-        players[player.character.name] = player
+        self.players[player.character.name] = player
     
     def w(self,message,exclude = ''):
-        for player in players:
-            if player.character.name != exclude: player.net.w(message)
+        for player in self.players:
+            if player != exclude: self.players[player].net.w(message)
 
 #Startup Sequence
 if __name__ == "__main__":
@@ -226,5 +228,4 @@ if __name__ == "__main__":
         rpc.execute()
         
         
-
 
