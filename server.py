@@ -1,18 +1,18 @@
 import socket
 import threading
-import socketserver
+import SocketServer
 import time
 from inspect import getargspec
-import configparser
-from queue import *
+import ConfigParser
+from Queue import *
 
 #Marshalling
-class NetHandler(socketserver.StreamRequestHandler):
+class NetHandler(SocketServer.StreamRequestHandler):
     def w(self,text,noCR = 0):
         if noCR:
-            self.wfile.write(bytes(text,'ascii'))
+            self.wfile.write(text)
         else:
-            self.wfile.write(bytes(text+"\n\r",'ascii'))
+            self.wfile.write(text+"\n\r")
             
     def handle(self):
         self.w(cfg.get('strings','welcome'));
@@ -26,7 +26,7 @@ class NetHandler(socketserver.StreamRequestHandler):
             q.put(RPCMessage(player,data))
 
 #Marshalling           
-class NetMarshall(socketserver.ThreadingMixIn, socketserver.TCPServer):
+class NetMarshall(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     #def handle_error(self, request, client_address):
         #print("Some shit went down from %s" % (client_address,))
     def close_request(self, request, client_address):
@@ -46,7 +46,7 @@ class NetMarshall(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class RPCMessage:
     def __init__(self,player,message):
         self.player = player
-        self.message = str(message.strip())[1:].strip('"\'').lower().split(' ',1)
+        self.message = message.strip().lower().split(' ',1)
         if len(self.message) == 1:
             self.message = [self.message[0],0]
         self.funcs = {'help': self.rpc_help} # any time
@@ -198,7 +198,7 @@ class Room:
 
 #Startup Sequence
 if __name__ == "__main__":
-    cfg = configparser.SafeConfigParser()
+    cfg = ConfigParser.SafeConfigParser()
     cfg.read('game.cfg')
     
     HOST, PORT = cfg.get('net','host'), int(cfg.get('net','port')) #default telnet port is 23
@@ -214,14 +214,12 @@ if __name__ == "__main__":
         c+=1
         
     q = Queue()
-    
+
     server = NetMarshall((HOST, PORT), NetHandler)
     server_thread = threading.Thread(target=server.serve_forever)
     server_thread.setDaemon(True)
     server_thread.start()
-    
-    print("Server loop running in thread:", server_thread.name)
-
+    print "Server loop running in thread:", server_thread.name
     #Simulation - If we were doing more than handling RPCs harhar :D
     while(1):
         rpc = q.get(1) # block the shit out of this
