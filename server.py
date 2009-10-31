@@ -58,7 +58,7 @@ class RPCMessage:
         if not args:
             self.player.net.w("You must say something to be heard.")
             return
-        if not self.player.room:
+        if not self.player.room == -1:
             self.player.net.w("You must be in a room to say something.")
             return
         rooms[self.player.room].w("%s>> %s" % (self.player.character.name,args))
@@ -155,7 +155,7 @@ class RPCMessage:
             
 class Player:
     character = 0
-    room = 0
+    room = -1
     
     def __init__(self,net):
         self.net = net
